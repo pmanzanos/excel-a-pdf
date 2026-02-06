@@ -31,9 +31,8 @@ def create_pdf(df):
         
         for column in df.columns:
             pdf.chapter_title(column)
-            pdf.chapter_body(row[column])
-            
-    return pdf.output(dest='S').encode('latin-1', errors='replace')
+            # Usamos str(row[column]) para asegurar que datos numéricos no den error
+            pdf.chapter_body(str(row[column]))
 
 # --- INTERFAZ DE STREAMLIT ---
 st.set_page_config(page_title="Excel a PDF Converter", page_icon="📄")
