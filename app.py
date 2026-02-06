@@ -5,84 +5,88 @@ from fpdf import FPDF
 class PDFGenerator(FPDF):
     def header(self):
         self.set_font('helvetica', 'B', 15)
-        self.cell(0, 10, 'Informe Individual de Registro', 0, 1, 'C')
+        self.cell(0, 10, 'Informe Detallado de Registro', 0, 1, 'C')
         self.ln(10)
 
     def chapter_title(self, title):
         self.set_font('helvetica', 'B', 11)
-        self.set_fill_color(230, 230, 230)
+        self.set_fill_color(240, 240, 240)
+        # multi_cell por si el título de la columna es muy largo
         self.multi_cell(0, 8, str(title).upper(), 0, 'L', fill=True)
         self.ln(2)
 
     def chapter_body(self, body):
         self.set_font('helvetica', '', 10)
-        # multi_cell es clave para que el texto largo no se corte y fluya a la siguiente página
         self.multi_cell(0, 6, str(body))
         self.ln(4)
 
-def create_single_pdf(row_data, columns):
+def create_single_pdf(row_data, columns_to_show):
     pdf = PDFGenerator(orientation='P', unit='mm', format='A4')
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     
-    for col_name in columns:
+    for col_name in columns_to_show:
         valor = row_data[col_name]
-        # Evitar imprimir apartados vacíos si lo deseas, o poner "N/A"
-        if pd.isna(valor): valor = "Sin información"
+        if pd.isna(valor): valor = "---"
         
         pdf.chapter_title(col_name)
-        # Limpieza de caracteres para evitar errores de encoding
+        # Limpieza para evitar errores de símbolos no soportados
         texto_limpio = str(valor).encode('latin-1', 'replace').decode('latin-1')
         pdf.chapter_body(texto_limpio)
             
     return pdf.output()
 
-# --- INTERFAZ DE STREAMLIT ---
-st.set_page_config(page_title="Generador de Informes Pro", page_icon="📄")
+# --- INTERFAZ ---
+st.set_page_config(page_title="Generador de Informes", page_icon="📑")
 
-st.title("📄 Generador de Informes Individuales")
-st.markdown("Carga tu archivo y genera un PDF único para un registro específico.")
+st.title("📑 Generador de Informes a la Carta")
+st.markdown("""
+**Reglas de procesamiento:**
+1. Etiquetas tomadas de la **Fila 1**.
+2. Datos procesados desde la **Fila 4**.
+3. Puedes elegir **qué columnas omitir**.
+""")
 
-uploaded_file = st.file_uploader("Sube tu Excel o CSV", type=['xlsx', 'csv'])
+uploaded_file = st.file_uploader("Sube tu archivo (XLSX o CSV)", type=['xlsx', 'csv'])
 
 if uploaded_file is not None:
     try:
-        # 1. LEER EL ARCHIVO COMPLETO PRIMERO PARA LAS ETIQUETAS
-        # La primera fila (índice 0) serán las columnas
+        # Obtener nombres de columnas (Fila 1)
         header_df = pd.read_excel(uploaded_file, nrows=0) if not uploaded_file.name.endswith('.csv') else pd.read_csv(uploaded_file, nrows=0)
-        etiquetas = header_df.columns.tolist()
+        todas_las_etiquetas = header_df.columns.tolist()
 
-        # 2. LEER DATOS DESDE LA FILA 4 (skiprows=3)
-        # Nota: skiprows=3 salta las filas 1, 2 y 3. La fila 4 se convierte en el primer dato.
+        # Leer datos desde la Fila 4
         if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file, skiprows=3, names=etiquetas)
+            df = pd.read_csv(uploaded_file, skiprows=3, names=todas_las_etiquetas)
         else:
-            df = pd.read_excel(uploaded_file, skiprows=3, names=etiquetas)
+            df = pd.read_excel(uploaded_file, skiprows=3, names=todas_las_etiquetas)
         
-        st.success(f"Base de datos cargada. {len(df)} registros disponibles (empezando desde la fila 4).")
+        st.sidebar.header("Configuración de Columnas")
+        # Selector para omitir columnas iniciales
+        num_omitir = st.sidebar.number_input("¿Cuántas columnas iniciales quieres OMITIR?", min_value=0, max_value=len(todas_las_etiquetas)-1, value=0)
+        
+        columnas_finales = todas_las_etiquetas[num_omitir:]
+        
+        st.sidebar.write("Columnas que aparecerán en el PDF:")
+        st.sidebar.info(", ".join(columnas_finales))
 
-        # 3. SELECTOR DE FILA
-        # Usamos una columna identificadora (por ejemplo la primera) para el selector
-        opciones = [f"Fila {i + 4}: {str(row[0])[:30]}..." for i, row in df.iterrows()]
-        seleccion = st.selectbox("Selecciona el registro que deseas convertir a PDF:", range(len(opciones)), format_func=lambda x: opciones[x])
+        # Selector de Fila
+        opciones = [f"Fila {i + 4}: {str(row.iloc[0])[:20]}..." for i, row in df.iterrows()]
+        seleccion = st.selectbox("Selecciona el registro:", range(len(opciones)), format_func=lambda x: opciones[x])
 
-        # 4. BOTÓN DE GENERACIÓN
-        if st.button("🚀 Generar PDF de este registro"):
+        if st.button("🚀 Generar PDF"):
             fila_seleccionada = df.iloc[seleccion]
             
-            with st.spinner('Construyendo documento...'):
-                pdf_output = create_single_pdf(fila_seleccionada, etiquetas)
+            with st.spinner('Generando documento...'):
+                pdf_output = create_single_pdf(fila_seleccionada, columnas_finales)
                 
                 if pdf_output:
                     st.download_button(
-                        label="⬇️ Descargar Informe PDF",
+                        label="⬇️ Descargar PDF",
                         data=bytes(pdf_output),
                         file_name=f"Informe_Fila_{seleccion + 4}.pdf",
                         mime="application/pdf"
                     )
 
     except Exception as e:
-        st.error(f"❌ Error al procesar: {e}")
-
-st.divider()
-st.caption("Configuración: Etiquetas en Fila 1 | Datos desde Fila 4")
+        st.error(f"Error: {e}")
