@@ -1,98 +1,88 @@
 import streamlit as st
 import pandas as pd
 from fpdf import FPDF
-import io
 
 class PDFGenerator(FPDF):
     def header(self):
-        # Intentamos usar una fuente segura para el título
         self.set_font('helvetica', 'B', 15)
-        self.cell(0, 10, 'Reporte General de Datos', 0, 1, 'C')
+        self.cell(0, 10, 'Informe Individual de Registro', 0, 1, 'C')
         self.ln(10)
 
     def chapter_title(self, title):
         self.set_font('helvetica', 'B', 11)
         self.set_fill_color(230, 230, 230)
-        self.cell(0, 8, str(title).upper(), 0, 1, 'L', fill=True)
+        self.multi_cell(0, 8, str(title).upper(), 0, 'L', fill=True)
         self.ln(2)
 
     def chapter_body(self, body):
         self.set_font('helvetica', '', 10)
-        # Multi_cell maneja automáticamente los saltos de línea
+        # multi_cell es clave para que el texto largo no se corte y fluya a la siguiente página
         self.multi_cell(0, 6, str(body))
         self.ln(4)
 
-def create_pdf(df):
-    # 'P' = Portrait (Vertical), 'mm' = milímetros, 'A4' = tamaño papel
+def create_single_pdf(row_data, columns):
     pdf = PDFGenerator(orientation='P', unit='mm', format='A4')
     pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
     
-    # Si tienes el archivo DejaVuSans.ttf en la carpeta, descomenta estas líneas:
-    # pdf.add_font('DejaVu', '', 'DejaVuSans.ttf', uni=True)
-    # pdf.set_font('DejaVu', '', 10)
-
-    for index, row in df.iterrows():
-        pdf.add_page()
+    for col_name in columns:
+        valor = row_data[col_name]
+        # Evitar imprimir apartados vacíos si lo deseas, o poner "N/A"
+        if pd.isna(valor): valor = "Sin información"
         
-        # Indicador de registro
-        pdf.set_font('helvetica', 'I', 8)
-        pdf.cell(0, 5, f"Registro {index + 1} de {len(df)}", 0, 1, 'R')
-        
-        for column in df.columns:
-            pdf.chapter_title(column)
-            # Reemplazamos caracteres que suelen dar problemas en latin-1 si no usamos fuentes Unicode
-            texto_limpio = str(row[column]).encode('latin-1', 'replace').decode('latin-1')
-            pdf.chapter_body(texto_limpio)
+        pdf.chapter_title(col_name)
+        # Limpieza de caracteres para evitar errores de encoding
+        texto_limpio = str(valor).encode('latin-1', 'replace').decode('latin-1')
+        pdf.chapter_body(texto_limpio)
             
     return pdf.output()
 
 # --- INTERFAZ DE STREAMLIT ---
-st.set_page_config(page_title="Convertidor Excel a PDF", page_icon="📄")
+st.set_page_config(page_title="Generador de Informes Pro", page_icon="📄")
 
-# Estilo personalizado con CSS
-st.markdown("""
-    <style>
-    .main { background-color: #f5f7f9; }
-    .stButton>button { width: 100%; background-color: #4CAF50; color: white; }
-    </style>
-    """, unsafe_allow_html=True)
+st.title("📄 Generador de Informes Individuales")
+st.markdown("Carga tu archivo y genera un PDF único para un registro específico.")
 
-st.title("📄 Generador de PDF Corporativo")
-st.info("Sube tu archivo Excel o CSV. Cada fila se convertirá en una página nueva con sus apartados correspondientes.")
-
-uploaded_file = st.file_uploader("Arrastra aquí tu archivo", type=['xlsx', 'csv'])
+uploaded_file = st.file_uploader("Sube tu Excel o CSV", type=['xlsx', 'csv'])
 
 if uploaded_file is not None:
     try:
-        # Carga de datos
-        if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
-        else:
-            df = pd.read_excel(uploaded_file)
-        
-        st.success(f"✅ Archivo cargado: {len(df)} registros detectados.")
-        
-        # Mostrar vista previa
-        with st.expander("Ver vista previa de los datos"):
-            st.dataframe(df.head())
+        # 1. LEER EL ARCHIVO COMPLETO PRIMERO PARA LAS ETIQUETAS
+        # La primera fila (índice 0) serán las columnas
+        header_df = pd.read_excel(uploaded_file, nrows=0) if not uploaded_file.name.endswith('.csv') else pd.read_csv(uploaded_file, nrows=0)
+        etiquetas = header_df.columns.tolist()
 
-        if st.button("🚀 Crear y Descargar PDF"):
-            with st.spinner('Procesando documento...'):
-                pdf_output = create_pdf(df)
+        # 2. LEER DATOS DESDE LA FILA 4 (skiprows=3)
+        # Nota: skiprows=3 salta las filas 1, 2 y 3. La fila 4 se convierte en el primer dato.
+        if uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file, skiprows=3, names=etiquetas)
+        else:
+            df = pd.read_excel(uploaded_file, skiprows=3, names=etiquetas)
+        
+        st.success(f"Base de datos cargada. {len(df)} registros disponibles (empezando desde la fila 4).")
+
+        # 3. SELECTOR DE FILA
+        # Usamos una columna identificadora (por ejemplo la primera) para el selector
+        opciones = [f"Fila {i + 4}: {str(row[0])[:30]}..." for i, row in df.iterrows()]
+        seleccion = st.selectbox("Selecciona el registro que deseas convertir a PDF:", range(len(opciones)), format_func=lambda x: opciones[x])
+
+        # 4. BOTÓN DE GENERACIÓN
+        if st.button("🚀 Generar PDF de este registro"):
+            fila_seleccionada = df.iloc[seleccion]
+            
+            with st.spinner('Construyendo documento...'):
+                pdf_output = create_single_pdf(fila_seleccionada, etiquetas)
                 
-                # Manejo de la salida de datos para evitar el error de NoneType o bytearray
                 if pdf_output:
                     st.download_button(
-                        label="⬇️ Descargar Archivo PDF",
+                        label="⬇️ Descargar Informe PDF",
                         data=bytes(pdf_output),
-                        file_name="reporte_final.pdf",
+                        file_name=f"Informe_Fila_{seleccion + 4}.pdf",
                         mime="application/pdf"
                     )
-                else:
-                    st.error("El generador no devolvió datos.")
-                    
+
     except Exception as e:
-        st.error(f"❌ Error crítico: {e}")
+        st.error(f"❌ Error al procesar: {e}")
 
 st.divider()
-st.caption("Desarrollado con Python, Streamlit y FPDF2")
+st.caption("Configuración: Etiquetas en Fila 1 | Datos desde Fila 4")
