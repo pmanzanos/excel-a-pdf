@@ -6,6 +6,7 @@ import datetime
 class PDFParte(FPDF):
     def header(self):
         try:
+            # Recuerda tener el archivo 'encabezado.png' en la misma carpeta
             self.image('encabezado.png', 10, 8, 190)
             self.ln(30) 
         except:
@@ -95,7 +96,7 @@ def generar_pdf(datos_fila, nombre_jefatura):
     pdf.set_font('helvetica', 'I', 9)
     pdf.cell(90, 6, f"Fdo: {docente_nombre}".encode('latin-1', 'replace').decode('latin-1'), 0, 0, 'L')
 
-    # Columna Derecha: Jefatura (Tomado de D49)
+    # Columna Derecha: Jefatura
     pdf.set_xy(110, y_actual)
     pdf.set_font('helvetica', 'B', 10)
     pdf.cell(90, 6, "V.º B.º Jefatura de Estudios", 0, 1, 'L')
@@ -105,11 +106,12 @@ def generar_pdf(datos_fila, nombre_jefatura):
 
     return pdf.output()
 
-# --- INTERFAZ STREAMLIT ---
-st.set_page_config(page_title="Generador Pro", page_icon="📝")
-st.title("📝 Generador de Partes Automatizado")
+# --- INTERFAZ STREAMLIT EN ESPAÑOL ---
+st.set_page_config(page_title="Generador de Partes", page_icon="📝")
+st.title("📝 Generador de Partes de Incidencias")
 
-archivo = st.file_uploader("Sube el archivo Excel", type=['xlsx'])
+# Mensaje del cargador en español
+archivo = st.file_uploader("Arrastra y suelta aquí el archivo Excel (PARTES.RESPUESTAS.xlsx)", type=['xlsx'])
 
 if archivo:
     try:
@@ -117,7 +119,6 @@ if archivo:
         df = pd.read_excel(archivo, sheet_name='RPTS')
         
         # 2. Leer Hoja 'PARTE' para el nombre de Jefatura (Celda D49)
-        # En pandas, la celda D49 es fila 48, columna 3 (0-indexed)
         df_parte_raw = pd.read_excel(archivo, sheet_name='PARTE', header=None)
         nombre_jefatura = df_parte_raw.iloc[48, 3] # Fila 49 (índice 48), Columna D (índice 3)
         
@@ -130,23 +131,29 @@ if archivo:
         df = df[df['ID'].notna()]
         df['ID_STR'] = df['ID'].astype(str).str.replace('.0', '', regex=False).str.strip()
 
-        st.success(f"Base de datos cargada. Jefatura detectada: {nombre_jefatura}")
+        st.success(f"✅ Archivo cargado correctamente. Jefatura: {nombre_jefatura}")
 
-        id_buscada = st.text_input("ID del parte:").strip()
+        # Buscador
+        id_buscada = st.text_input("Introduce la ID del parte a generar:").strip()
 
         if id_buscada:
             resultado = df[df['ID_STR'] == id_buscada]
             if not resultado.empty:
                 fila = resultado.iloc[0]
-                if st.button("🚀 Generar PDF Completo"):
-                    pdf_bytes = generar_pdf(fila, nombre_jefatura)
-                    st.download_button(
-                        label="⬇️ Descargar PDF",
-                        data=bytes(pdf_bytes),
-                        file_name=f"Parte_{id_buscada}.pdf",
-                        mime="application/pdf"
-                    )
+                st.info(f"🔎 Parte seleccionado: {fila['ALUMNO OBJETO DEL PARTE']}")
+                
+                if st.button("🚀 Crear Documento PDF"):
+                    with st.spinner('Generando el PDF...'):
+                        pdf_bytes = generar_pdf(fila, nombre_jefatura)
+                        st.download_button(
+                            label="⬇️ Descargar PDF Ahora",
+                            data=bytes(pdf_bytes),
+                            file_name=f"Parte_Incidencia_{id_buscada}.pdf",
+                            mime="application/pdf"
+                        )
             else:
-                st.error("ID no encontrada.")
+                st.error(f"❌ No se encontró ningún parte con la ID: {id_buscada}")
     except Exception as e:
-        st.error(f"Error técnico: {e}")
+        st.error(f"⚠️ Error al procesar el archivo: {e}")
+else:
+    st.info("👋 Por favor, sube el archivo Excel para comenzar.")
