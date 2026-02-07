@@ -2,92 +2,103 @@ import streamlit as st
 import pandas as pd
 from fpdf import FPDF
 
-class PDFGenerator(FPDF):
+class PDFParte(FPDF):
     def header(self):
-        self.set_font('helvetica', 'B', 15)
-        self.cell(0, 10, 'Informe de Registro', 0, 1, 'C')
-        self.ln(10)
+        self.set_font('helvetica', 'B', 16)
+        self.cell(0, 10, 'PARTE DE INCIDENCIAS', 0, 1, 'C')
+        self.ln(5)
 
-    def chapter_title(self, title):
+    def seccion(self, titulo):
         self.set_font('helvetica', 'B', 11)
-        self.set_fill_color(240, 240, 240)
-        self.multi_cell(0, 8, str(title).upper(), 0, 'L', fill=True)
+        self.set_fill_color(230, 230, 230)
+        self.cell(0, 8, f" {titulo}", 0, 1, 'L', fill=True)
         self.ln(2)
 
-    def chapter_body(self, body):
+    def campo(self, etiqueta, valor):
+        self.set_font('helvetica', 'B', 10)
+        self.write(6, f"{etiqueta}: ")
         self.set_font('helvetica', '', 10)
-        self.multi_cell(0, 6, str(body))
-        self.ln(4)
+        self.multi_cell(0, 6, str(valor))
+        self.ln(2)
 
-def create_single_pdf(row_data):
-    pdf = PDFGenerator(orientation='P', unit='mm', format='A4')
+def generar_pdf_por_id(datos_fila):
+    pdf = PDFParte()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
+
+    # Mapeo según tu hoja "PARTE"
+    pdf.seccion("DATOS GENERALES")
+    pdf.campo("ID", datos_fila.get('ID', 'N/A'))
+    pdf.campo("ALUMN@/O", datos_fila.get('ALUMNO OBJETO DEL PARTE', 'N/A'))
+    pdf.campo("CURSO / GRUPO / TUTOR", datos_fila.get('CURSO / GRUPO / TUTOR', 'N/A'))
+    pdf.campo("FECHA", datos_fila.get('FECHA DEL INCIDENTE', 'N/A'))
+    pdf.campo("TRAMO HORARIO", datos_fila.get('TRAMO HORARIO EN QUE SE PRODUCE EL INCIDENTE', 'N/A'))
+    pdf.campo("LUGAR", datos_fila.get('LUGAR EN QUE SE PRODUCE EL INCIDENTE', 'N/A'))
+    pdf.campo("DOCENTE QUE IMPONE EL PARTE", datos_fila.get('DOCENTE / ED. SOCIAL QUE IMPONE EL PARTE', 'N/A'))
+
+    pdf.ln(5)
+    pdf.seccion("TIPO DE INCIDENCIA")
+    pdf.campo("CATEGORÍA", datos_fila.get('TIPO DE INCIDENCIA', 'N/A'))
     
-    for col_name, valor in row_data.items():
-        if pd.isna(valor): valor = "---"
-        
-        pdf.chapter_title(col_name)
-        # Limpieza para evitar errores de símbolos
-        texto_limpio = str(valor).encode('latin-1', 'replace').decode('latin-1')
-        pdf.chapter_body(texto_limpio)
-            
+    # Verificamos si es leve o grave según tus columnas
+    desc_leve = datos_fila.get('DEFINICIÓN DE LA CONDUCTA O CONDUCTAS CONTRARIAS A LA NORMA', '')
+    desc_grave = datos_fila.get('DEFINICIÓN DE LA CONDUCTA O CONDUCTAS  GRAVEMENTE PERJUDICIALES PARA LA CONVIVENCIA.', '')
+    
+    if pd.notna(desc_leve) and desc_leve != "":
+        pdf.campo("CONDUCTA CONTRARIA", desc_leve)
+    if pd.notna(desc_grave) and desc_grave != "":
+        pdf.campo("CONDUCTA GRAVE", desc_grave)
+
+    pdf.ln(5)
+    pdf.seccion("DESCRIPCIÓN DE LOS HECHOS")
+    hechos = datos_fila.get('DESCRIBE LOS HECHOS QUE MOTIVAN EL APERCIBIMIENTO POR ESCRITO', 'Sin descripción.')
+    pdf.multi_cell(0, 6, str(hechos).encode('latin-1', 'replace').decode('latin-1'))
+
     return pdf.output()
 
-# --- INTERFAZ ---
-st.set_page_config(page_title="Excel a PDF Pro", page_icon="📝")
+# --- INTERFAZ STREAMLIT ---
+st.set_page_config(page_title="Generador de Partes", page_icon="📝")
+st.title("📝 Sistema de Generación de Partes")
 
-st.title("📝 Generador de Informes por Fila")
+# En una app real, podrías subir el archivo una sola vez
+archivo = st.file_uploader("Sube el archivo 'PARTES.RESPUESTAS.xlsx'", type=['xlsx', 'csv'])
 
-uploaded_file = st.file_uploader("Sube tu archivo Excel o CSV", type=['xlsx', 'csv'])
-
-if uploaded_file is not None:
+if archivo:
+    # Cargamos la hoja de datos (RPTS)
+    # Si es CSV usamos el que me pasaste, si es XLSX buscamos la pestaña "RPTS"
     try:
-        # CARGA SIN SALTOS: Leemos desde la fila 1 (donde están las etiquetas)
-        # Por defecto, pandas toma la primera fila como nombres de columna (header=0)
-        df_original = pd.read_excel(uploaded_file) if not uploaded_file.name.endswith('.csv') else pd.read_csv(uploaded_file)
+        if archivo.name.endswith('.csv'):
+            df = pd.read_csv(archivo)
+        else:
+            df = pd.read_excel(archivo, sheet_name='RPTS')
         
-        # --- FILTRO DE COLUMNAS (HORIZONTAL) ---
-        st.sidebar.header("Configuración")
-        cols_a_omitir = st.sidebar.number_input("¿Cuántas columnas iniciales omitir?", 
-                                               min_value=0, 
-                                               max_value=len(df_original.columns)-1, 
-                                               value=3)
-        
-        # Recortamos columnas
-        df_filtrado = df_original.iloc[:, cols_a_omitir:]
+        st.success("Base de datos cargada correctamente.")
 
-        # --- SELECTOR DE FILA (SINCRONIZADO CON EXCEL) ---
-        # En Pandas, el índice 0 corresponde a la fila 2 de Excel (porque la 1 son las etiquetas).
-        # Queremos que el usuario vea: "Fila 2", "Fila 3", "Fila 4", etc.
-        opciones = []
-        for i in range(len(df_filtrado)):
-            num_excel = i + 2  # i=0 es fila 2 en Excel
-            dato_guia = str(df_filtrado.iloc[i, 0])[:15] # Primer dato para ayudar a identificar
-            opciones.append(f"Fila {num_excel} ({dato_guia}...)")
+        # BUSCADOR POR ID
+        id_buscar = st.number_input("Introduce la ID del parte:", min_value=0, step=1)
 
-        st.write(f"### Selección de datos")
-        seleccion_idx = st.selectbox("Elige la fila de Excel de la que quieres el PDF:", 
-                                     range(len(opciones)), 
-                                     format_func=lambda x: opciones[x])
+        if id_buscar:
+            # Buscamos la fila que coincide con la ID
+            resultado = df[df['ID'] == id_buscar]
 
-        if st.button("🚀 Generar PDF"):
-            fila_seleccionada = df_filtrado.iloc[seleccion_idx]
-            num_fila_excel = seleccion_idx + 2
-            
-            with st.spinner('Construyendo documento...'):
-                pdf_output = create_single_pdf(fila_seleccionada)
+            if not resultado.empty:
+                fila = resultado.iloc[0]
+                st.info(f"Parte encontrado: {fila['ALUMNO OBJETO DEL PARTE']}")
                 
-                st.download_button(
-                    label=f"⬇️ Descargar PDF (Fila {num_fila_excel})",
-                    data=bytes(pdf_output),
-                    file_name=f"Informe_Fila_{num_fila_excel}.pdf",
-                    mime="application/pdf"
-                )
+                # Vista previa rápida
+                with st.expander("Ver datos del parte"):
+                    st.write(fila)
 
-        st.divider()
-        st.write("#### Vista previa del registro seleccionado:")
-        st.dataframe(df_filtrado.iloc[[seleccion_idx]])
+                if st.button("🚀 Generar PDF del Parte"):
+                    pdf_bytes = generar_pdf_por_id(fila)
+                    st.download_button(
+                        label="⬇️ Descargar Parte en PDF",
+                        data=bytes(pdf_bytes),
+                        file_name=f"Parte_{id_buscar}.pdf",
+                        mime="application/pdf"
+                    )
+            else:
+                st.warning(f"No se ha encontrado ningún parte con la ID {id_buscar}")
 
     except Exception as e:
-        st.error(f"Error en el proceso: {e}")
+        st.error(f"Error al procesar el archivo: {e}")
