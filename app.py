@@ -23,14 +23,12 @@ class PDFParte(FPDF):
         self.set_font('helvetica', 'B', 10)
         self.write(6, f"{etiqueta}: ")
         self.set_font('helvetica', '', 10)
-        
         if pd.isna(valor) or str(valor).strip() in ["nan", "#VALUE!", ""]:
             val_str = "---"
         elif isinstance(valor, (datetime.datetime, pd.Timestamp)):
             val_str = valor.strftime('%d/%m/%Y')
         else:
             val_str = str(valor)
-            
         self.multi_cell(0, 6, val_str.encode('latin-1', 'replace').decode('latin-1'))
         self.ln(1)
 
@@ -50,7 +48,7 @@ def generar_pdf(datos_fila, nombre_jefatura):
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     pdf.seccion("DATOS GENERALES")
-    pdf.campo("ID DEL PARTE", datos_fila.get('ID_TEXTO', '---'))
+    pdf.campo("ID DEL PARTE", datos_fila.get('ID_GENERADA', '---'))
     pdf.campo("ALUMN@/O", datos_fila.get('ALUMNO OBJETO DEL PARTE', '---'))
     pdf.campo("CURSO / GRUPO / TUTOR", datos_fila.get('CURSO / GRUPO / TUTOR', '---'))
     pdf.campo("FECHA DEL INCIDENTE", datos_fila.get('FECHA DEL INCIDENTE', '---'))
@@ -84,40 +82,42 @@ archivo = st.file_uploader("Sube el archivo Excel (PARTES.RESPUESTAS.xlsx)", typ
 
 if archivo:
     try:
-        # Cargar datos
         df = pd.read_excel(archivo, sheet_name='RPTS')
         df_parte_raw = pd.read_excel(archivo, sheet_name='PARTE', header=None)
         nombre_jefatura = df_parte_raw.iloc[48, 3] if not pd.isna(df_parte_raw.iloc[48, 3]) else "Jefatura de Estudios"
 
-        # LIMPIEZA DEFINITIVA DE IDs
-        # 1. Convertimos a número (los errores se vuelven NaN)
-        df['ID_LIMPIA'] = pd.to_numeric(df['ID'], errors='coerce')
-        # 2. Quitamos las filas que no tienen un número de ID válido
-        df = df.dropna(subset=['ID_LIMPIA'])
-        # 3. Guardamos como texto entero (ej: "5550")
-        df['ID_TEXTO'] = df['ID_LIMPIA'].astype(int).astype(str)
+        # NUEVA LÓGICA DE EXTRACCIÓN DE ID DESDE LA COLUMNA B (NUMERO)
+        def extraer_id(valor):
+            try:
+                # Obtenemos los decimales. Ejemplo: 45968.5801 -> "5801"
+                num_str = f"{valor:.4f}"
+                return num_str.split('.')[1]
+            except:
+                return None
+
+        df['ID_GENERADA'] = df['NUMERO'].apply(extraer_id)
+        # Limpiamos filas donde no se pudo generar ID (errores de fórmula)
+        df = df.dropna(subset=['ID_GENERADA'])
 
         if 'FECHA DEL INCIDENTE' in df.columns:
             df['FECHA DEL INCIDENTE'] = pd.to_datetime(df['FECHA DEL INCIDENTE'], errors='coerce')
         
-        st.success(f"✅ Archivo cargado correctamente.")
+        st.success(f"✅ Archivo cargado. Se han vinculado los datos mediante los decimales de la columna B.")
 
-        id_buscada = st.text_input("Introduce la ID del parte (ej. 5550):").strip()
+        id_input = st.text_input("Introduce los 4 decimales de la columna B (ej. 5550):").strip()
 
-        if id_buscada:
-            # Buscamos la coincidencia
-            resultado = df[df['ID_TEXTO'] == id_buscada]
-
-            if not resultado.empty:
-                fila = resultado.iloc[0]
-                st.info(f"🔎 Encontrado: {fila['ALUMNO OBJETO DEL PARTE']}")
-                if st.button("🚀 Generar PDF"):
+        if id_input:
+            match = df[df['ID_GENERADA'] == id_input]
+            if not match.empty:
+                fila = match.iloc[0]
+                st.info(f"🔎 Encontrado alumno: {fila['ALUMNO OBJETO DEL PARTE']}")
+                if st.button("🚀 Crear PDF"):
                     pdf_bytes = generar_pdf(fila, nombre_jefatura)
-                    st.download_button(label="⬇️ Descargar PDF", data=bytes(pdf_bytes), file_name=f"Parte_{id_buscada}.pdf", mime="application/pdf")
+                    st.download_button(label="⬇️ Descargar PDF", data=bytes(pdf_bytes), file_name=f"Parte_{id_input}.pdf", mime="application/pdf")
             else:
-                st.error(f"❌ La ID '{id_buscada}' no se localiza.")
-                with st.expander("Haz clic aquí para ver las IDs que el sistema ha leído"):
-                    st.write(", ".join(df['ID_TEXTO'].unique().tolist()))
+                st.error(f"❌ No se encuentra ningún registro con los decimales '{id_input}'.")
+                with st.expander("Ver IDs (decimales) disponibles"):
+                    st.write(", ".join(df['ID_GENERADA'].unique().tolist()))
 
     except Exception as e:
         st.error(f"⚠️ Error: {e}")
