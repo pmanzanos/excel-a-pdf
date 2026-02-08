@@ -36,23 +36,30 @@ class PDFParte(FPDF):
         self.multi_cell(0, 6, val_str.encode('latin-1', 'replace').decode('latin-1'))
         self.ln(1)
 
-    # FUNCIÓN CORREGIDA: Casillas y firmas en paralelo
+    # FUNCIÓN CORREGIDA: Casillas marcadas y firmas en paralelo
     def dibujar_firmas_paralelo(self, docente, jefe):
         self.ln(10)
         y_pos = self.get_y()
         
         # --- BLOQUE IZQUIERDO (Docente) ---
-        self.rect(10, y_pos, 4, 4) # Casilla 1
+        self.rect(10, y_pos, 4, 4) # Cuadrado 1
+        self.set_font('helvetica', 'B', 8)
+        self.text(11, y_pos + 3.2, "X") # Marca la X
+        
         self.set_xy(16, y_pos - 1)
         self.set_font('helvetica', '', 10)
         self.cell(85, 6, "Conforme del Docente / Ed. Social", 0, 0)
         
         # --- BLOQUE DERECHO (Jefatura) ---
-        self.rect(105, y_pos, 4, 4) # Casilla 2
+        self.rect(105, y_pos, 4, 4) # Cuadrado 2
+        self.set_font('helvetica', 'B', 8)
+        self.text(106, y_pos + 3.2, "X") # Marca la X
+        
         self.set_xy(111, y_pos - 1)
+        self.set_font('helvetica', '', 10)
         self.cell(85, 6, "Conforme de la Jefatura de Estudios", 0, 1)
         
-        self.ln(15) # Espacio para la firma manuscrita
+        self.ln(15) # Espacio para la firma
         y_nombres = self.get_y()
         
         # Nombres de los firmantes
@@ -97,7 +104,7 @@ def generar_pdf(datos_fila, nombre_jefatura):
     hechos = datos_fila.get('DESCRIBE LOS HECHOS QUE MOTIVAN EL APERCIBIMIENTO POR ESCRITO', 'Sin descripción.')
     pdf.multi_cell(0, 5, str(hechos).encode('latin-1', 'replace').decode('latin-1'))
     
-    # LLAMADA A LA NUEVA FUNCIÓN DE FIRMAS PARALELAS
+    # Dibujar firmas y casillas marcadas
     pdf.dibujar_firmas_paralelo(docente_nombre, nombre_jefatura)
     
     return pdf.output()
@@ -125,7 +132,8 @@ if archivo:
         df['ID_REDONDEADA'] = df['NUMERO'].apply(extraer_id_redondeada)
         st.success("✅ Archivo cargado correctamente.")
         
-        id_buscada = st.text_input("Introduce la ID (ej. 5550):").strip().zfill(4)
+        # CAMBIO: Texto simple sin ejemplo
+        id_buscada = st.text_input("Introduce la ID:").strip().zfill(4)
 
         if id_buscada != "0000":
             match = df[df['ID_REDONDEADA'] == id_buscada]
@@ -139,3 +147,5 @@ if archivo:
                 st.error(f"❌ No se encontró la ID {id_buscada}.")
     except Exception as e:
         st.error(f"⚠️ Error: {e}")
+else:
+    st.info("👋 Por favor, sube el archivo Excel para empezar.")
