@@ -48,7 +48,7 @@ def generar_pdf(datos_fila, nombre_jefatura):
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
     pdf.seccion("DATOS GENERALES")
-    pdf.campo("ID DEL PARTE", datos_fila.get('ID_MATEMATICA', '---'))
+    pdf.campo("ID DEL PARTE", datos_fila.get('ID_REDONDEADA', '---'))
     pdf.campo("ALUMN@/O", datos_fila.get('ALUMNO OBJETO DEL PARTE', '---'))
     pdf.campo("CURSO / GRUPO / TUTOR", datos_fila.get('CURSO / GRUPO / TUTOR', '---'))
     pdf.campo("FECHA DEL INCIDENTE", datos_fila.get('FECHA DEL INCIDENTE', '---'))
@@ -86,37 +86,37 @@ if archivo:
         df_parte = pd.read_excel(archivo, sheet_name='PARTE', header=None)
         nombre_jefatura = df_parte.iloc[48, 3] if not pd.isna(df_parte.iloc[48, 3]) else "Jefatura de Estudios"
 
-        # EXTRACCIÓN MATEMÁTICA PARA EVITAR REDONDEOS DE EXCEL
-        def extraer_id_matematica(valor):
+        # LÓGICA DE REDONDEO ESTILO EXCEL
+        def extraer_id_redondeada(valor):
             try:
-                # 1. Forzamos a que sea un número flotante
-                v = float(valor)
-                # 2. Multiplicamos por 10000 y redondeamos para evitar imprecisiones de coma flotante
-                # 45968.5801 -> 459685801
-                v_entero = int(round(v * 10000))
-                # 3. Nos quedamos con los últimos 4 dígitos
-                id_final = str(v_entero % 10000).zfill(4)
-                return id_final
+                # 1. Redondeamos el número de la columna B a 4 decimales
+                # Esto hace que 45968.55498 se convierta en 45968.5550
+                valor_redondeado = round(float(valor), 4)
+                # 2. Tomamos los decimales
+                decimales = str(f"{valor_redondeado:.4f}").split('.')[1]
+                return decimales
             except:
                 return None
 
-        df['ID_MATEMATICA'] = df['NUMERO'].apply(extraer_id_matematica)
-        st.success("✅ Archivo cargado y corregido matemáticamente.")
+        df['ID_REDONDEADA'] = df['NUMERO'].apply(extraer_id_redondeada)
+        st.success("✅ Archivo cargado. IDs sincronizadas con el redondeo de Excel.")
         
         id_buscada = st.text_input("Introduce la ID (ej. 5550):").strip().zfill(4)
 
         if id_buscada != "0000":
-            match = df[df['ID_MATEMATICA'] == id_buscada]
+            match = df[df['ID_REDONDEADA'] == id_buscada]
             if not match.empty:
                 fila = match.iloc[0]
                 st.info(f"📋 Parte encontrado: {fila['ALUMNO OBJETO DEL PARTE']}")
-                if st.button("🚀 Crear PDF"):
+                if st.button("🚀 Generar PDF"):
                     pdf_bytes = generar_pdf(fila, nombre_jefatura)
                     st.download_button(label="⬇️ Descargar PDF", data=bytes(pdf_bytes), file_name=f"Parte_{id_buscada}.pdf", mime="application/pdf")
             else:
                 st.error(f"❌ No se encontró la ID {id_buscada}.")
-                with st.expander("Ver IDs disponibles (calculadas sin redondeo)"):
-                    st.write(", ".join(sorted(df['ID_MATEMATICA'].dropna().unique().tolist())))
+                with st.expander("Ver IDs disponibles (con redondeo aplicado)"):
+                    st.write(", ".join(sorted(df['ID_REDONDEADA'].dropna().unique().tolist())))
 
     except Exception as e:
         st.error(f"⚠️ Error: {e}")
+else:
+    st.info("👋 Por favor, sube el archivo Excel para empezar.")
