@@ -6,6 +6,7 @@ import datetime
 class PDFParte(FPDF):
     def header(self):
         try:
+            # Asegúrate de que 'encabezado.png' esté en la misma carpeta
             self.image('encabezado.png', 10, 8, 190)
             self.ln(30) 
         except:
@@ -34,17 +35,19 @@ class PDFParte(FPDF):
 
     def casilla_conforme(self, texto):
         self.set_font('helvetica', 'B', 10)
+        # Dibujar un cuadradito (casilla marcada con una X)
         x_pos = self.get_x()
         y_pos = self.get_y()
         self.rect(x_pos, y_pos, 4, 4) 
         self.set_font('helvetica', 'B', 8)
-        self.text(x_pos + 1, y_pos + 3.2, "X")
+        self.text(x_pos + 1, y_pos + 3.2, "X") # La marca X
+        
         self.set_xy(x_pos + 6, y_pos - 1)
         self.set_font('helvetica', '', 10)
         self.cell(0, 6, texto, 0, 1)
         self.ln(2)
 
-def generar_pdf(datos_fila, nombre_jefatura):
+def generar_pdf(datos_fila):
     pdf = PDFParte()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
@@ -80,12 +83,13 @@ def generar_pdf(datos_fila, nombre_jefatura):
     hechos = datos_fila.get('DESCRIBE LOS HECHOS QUE MOTIVAN EL APERCIBIMIENTO POR ESCRITO', 'Sin descripción.')
     pdf.multi_cell(0, 5, str(hechos).encode('latin-1', 'replace').decode('latin-1'))
 
-    # --- FIRMAS ---
+    # --- NUEVA SECCIÓN: CONFORMIDAD Y FIRMAS ---
     pdf.ln(10)
     pdf.casilla_conforme("Conforme del Docente / Ed. Social")
     pdf.casilla_conforme("Conforme de la Jefatura de Estudios")
 
     pdf.ln(10)
+    # Bloque de Vistos Buenos (Dos columnas)
     y_actual = pdf.get_y()
     
     # Columna Izquierda: Docente
@@ -95,58 +99,47 @@ def generar_pdf(datos_fila, nombre_jefatura):
     pdf.set_font('helvetica', 'I', 9)
     pdf.cell(90, 6, f"Fdo: {docente_nombre}".encode('latin-1', 'replace').decode('latin-1'), 0, 0, 'L')
 
-    # Columna Derecha: Jefatura (Tomado de D49)
+    # Columna Derecha: Jefatura
     pdf.set_xy(110, y_actual)
     pdf.set_font('helvetica', 'B', 10)
     pdf.cell(90, 6, "V.º B.º Jefatura de Estudios", 0, 1, 'L')
     pdf.set_font('helvetica', 'I', 9)
     pdf.set_x(110)
-    pdf.cell(90, 6, f"Fdo: {nombre_jefatura}".encode('latin-1', 'replace').decode('latin-1'), 0, 0, 'L')
+    pdf.cell(90, 6, "Fdo: Jefatura de Estudios", 0, 0, 'L')
 
     return pdf.output()
 
 # --- INTERFAZ STREAMLIT ---
-st.set_page_config(page_title="Generador Pro", page_icon="📝")
-st.title("📝 Generador de Partes Automatizado")
+st.set_page_config(page_title="Generador de Partes Oficial", page_icon="📝")
+st.title("📝 Generador de Partes con Firmas")
 
 archivo = st.file_uploader("Sube el archivo Excel", type=['xlsx'])
 
 if archivo:
     try:
-        # 1. Leer Hoja 'RPTS' para los datos
         df = pd.read_excel(archivo, sheet_name='RPTS')
-        
-        # 2. Leer Hoja 'PARTE' para el nombre de Jefatura (Celda D49)
-        # En pandas, la celda D49 es fila 48, columna 3 (0-indexed)
-        df_parte_raw = pd.read_excel(archivo, sheet_name='PARTE', header=None)
-        nombre_jefatura = df_parte_raw.iloc[48, 3] # Fila 49 (índice 48), Columna D (índice 3)
-        
-        if pd.isna(nombre_jefatura):
-            nombre_jefatura = "Jefatura de Estudios"
-
-        # Procesar fechas e IDs
         if 'FECHA DEL INCIDENTE' in df.columns:
             df['FECHA DEL INCIDENTE'] = pd.to_datetime(df['FECHA DEL INCIDENTE'], errors='coerce')
-        df = df[df['ID'].notna()]
+        
+        df = df[df['ID'].notna()] 
         df['ID_STR'] = df['ID'].astype(str).str.replace('.0', '', regex=False).str.strip()
-
-        st.success(f"Base de datos cargada. Jefatura detectada: {nombre_jefatura}")
-
+        
+        st.success("Archivo cargado con éxito.")
         id_buscada = st.text_input("ID del parte:").strip()
 
         if id_buscada:
             resultado = df[df['ID_STR'] == id_buscada]
             if not resultado.empty:
                 fila = resultado.iloc[0]
-                if st.button("🚀 Generar PDF Completo"):
-                    pdf_bytes = generar_pdf(fila, nombre_jefatura)
+                if st.button("🚀 Generar PDF con Casillas y V.º B.º"):
+                    pdf_bytes = generar_pdf(fila)
                     st.download_button(
-                        label="⬇️ Descargar PDF",
+                        label="⬇️ Descargar PDF Oficial",
                         data=bytes(pdf_bytes),
-                        file_name=f"Parte_{id_buscada}.pdf",
+                        file_name=f"Parte_Oficial_{id_buscada}.pdf",
                         mime="application/pdf"
                     )
             else:
                 st.error("ID no encontrada.")
     except Exception as e:
-        st.error(f"Error técnico: {e}")
+        st.error(f"Error: {e}")
